@@ -579,6 +579,19 @@ const payload = {
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
+  merchant_suggested_asin: [
+    {
+      value: "1234567890",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  model_name: [
+    {
+      value: "model name 1",
+      language_tag: "en_GB",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
   manufacturer: [
     {
       value: "Dell INc",
@@ -592,11 +605,29 @@ const payload = {
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
+  fulfillment_availability: [
+    {
+      fulfillment_channel_code: "DEFAULT",
+      is_inventory_available: false,
+    },
+  ],
+  condition_type: [
+    {
+      value: "new_new",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
   list_price: [
     {
       currency: "GBP",
       marketplace_id: "A1F83G8C2ARO7P",
       value_with_tax: 1200,
+    },
+  ],
+  number_of_items: [
+    {
+      value: 3,
+      marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
   display: [
@@ -608,11 +639,24 @@ const payload = {
           unit: "centimeters",
         },
       ],
+      type: [
+        {
+          value: "LCD",
+          language_tag: "en_GB",
+        },
+      ],
     },
   ],
   graphics_processor_manufacturer: [
     {
       value: "AMD",
+      language_tag: "en_GB",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  graphics_description: [
+    {
+      value: "Graphics Description example",
       language_tag: "en_GB",
       marketplace_id: "A1F83G8C2ARO7P",
     },
@@ -626,6 +670,19 @@ const payload = {
   power_plug_type: [
     {
       value: "16_a_5_pin",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  accepted_voltage_frequency: [
+    {
+      value: "100v_120v_50hz",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  operating_system: [
+    {
+      value: "window 10",
+      language_tag: "en_GB",
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
@@ -680,11 +737,34 @@ const payload = {
           language_tag: "en_GB",
         },
       ],
+      family: [
+        {
+          value: "5x86",
+        },
+      ],
+      generation: [
+        {
+          value: "11th Generatiom",
+          language_tag: "en_GB",
+        },
+      ],
+      manufacturer: [
+        {
+          value: "Intel",
+          language_tag: "en_GB",
+        },
+      ],
       marketplace_id: "A1F83G8C2ARO7P",
       model_number: [
         {
           value: "i7-1165G7",
           language_tag: "en_GB",
+        },
+      ],
+      speed: [
+        {
+          value: 2.8,
+          unit: "GHz",
         },
       ],
     },
@@ -718,13 +798,57 @@ const payload = {
   ],
   hard_disk: [
     {
+      description: [
+        {
+          value: "descriptionn",
+          language_tag: "en_GB",
+        },
+      ],
+      interface: [
+        {
+          value: "ata_4",
+        },
+      ],
       marketplace_id: "A1F83G8C2ARO7P",
+      rotational_speed: [
+        {
+          value: 1233,
+          unit: "rpm",
+        },
+      ],
       size: [
         {
           value: 234,
           unit: "GB",
         },
       ],
+    },
+  ],
+  solid_state_storage_drive: [
+    {
+      capacity: {
+        value: 345,
+        unit: "gigabyte",
+      },
+      form_factor: "2_5_inches",
+      interface: "m2",
+      marketplace_id: "A1F83G8C2ARO7P",
+      maximum_random_read: {
+        value: 123,
+        unit: "exabyte",
+      },
+      maximum_random_write: {
+        value: 123,
+        unit: "exabyte",
+      },
+      maximum_sequential_read: {
+        value: 123,
+        unit: "exabyte",
+      },
+      maximum_sequential_write: {
+        value: 123,
+        unit: "exabyte",
+      },
     },
   ],
   optical_storage: [
@@ -742,6 +866,12 @@ const payload = {
     {
       value: "Europe",
       language_tag: "en_GB",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  version_for_country: [
+    {
+      value: "AF",
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
@@ -784,6 +914,12 @@ const payload = {
     {
       value: "2 years",
       language_tag: "en_GB",
+      marketplace_id: "A1F83G8C2ARO7P",
+    },
+  ],
+  batteries_required: [
+    {
+      value: false,
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],

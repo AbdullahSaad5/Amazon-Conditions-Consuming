@@ -57,8 +57,13 @@ function validateSchema(schema, data, path, rootSchema, errors) {
   }
 
   // Type-based validation – infer if missing
-  const expectedType =
-    schema.type || (schema.properties ? "object" : schema.items ? "array" : schema.required ? "object" : undefined);
+  const expectedType = schema.properties
+    ? "object"
+    : schema.items || schema.contains
+    ? "array"
+    : schema.required
+    ? "object"
+    : undefined;
 
   switch (expectedType) {
     case "object":
@@ -78,6 +83,9 @@ function validateSchema(schema, data, path, rootSchema, errors) {
       // If no explicit type, still allow recursion for nested keywords.
       if (schema.properties || schema.items) {
         validateObject(schema, data, path, rootSchema, errors);
+      } else if (schema.enum || schema.pattern || schema.const !== undefined) {
+        // Primitive constraints without explicit type
+        validatePrimitive({ ...schema, type: getJsonType(data) }, data, path, errors);
       }
   }
 
@@ -206,6 +214,25 @@ function validateArray(schema, data, path, rootSchema, errors) {
     data.forEach((item, idx) => {
       validateSchema(schema.items, item, `${path}[${idx}]`, rootSchema, errors);
     });
+  }
+
+  // Draft-07 `contains` – ensure at least one array element matches sub-schema.
+  if (schema.contains) {
+    let matchCount = 0;
+    data.forEach((item) => {
+      const temp = [];
+      validateSchema(schema.contains, item, path, rootSchema, temp);
+      if (temp.length === 0) matchCount += 1;
+    });
+
+    const minContains = typeof schema.minContains === "number" ? schema.minContains : 1;
+    const maxContains = typeof schema.maxContains === "number" ? schema.maxContains : undefined;
+
+    if (matchCount < minContains) {
+      errors.push({ path, message: `Array must contain at least ${minContains} item(s) matching contains schema` });
+    } else if (maxContains !== undefined && matchCount > maxContains) {
+      errors.push({ path, message: `Array must contain no more than ${maxContains} items matching contains schema` });
+    }
   }
 }
 
