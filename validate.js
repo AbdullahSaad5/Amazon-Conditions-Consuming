@@ -12,7 +12,7 @@
  * Validate `data` against `schema`.
  * @param {Object} schema – JSON schema to validate against.
  * @param {*}      data   – Arbitrary user payload.
- * @returns {{valid:boolean,errors:Array<{path:string,message:string}>}}
+ * @returns {{valid:boolean,errors:Array<{path:string,message:string,title?:string,severity?:string,code?:string,category?:string,schemaPath?:string}>}}
  */
 function validate(schema, data) {
   const errors = [];
@@ -28,9 +28,15 @@ function validate(schema, data) {
  * Generic validator that dispatches to specialised routines based on schema
  * contents (type, allOf/oneOf/anyOf, $ref, etc.).
  */
-function validateSchema(schema, data, path, rootSchema, errors) {
+function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "") {
   if (!schema || typeof schema !== "object") {
-    errors.push({ path, message: "Invalid or empty schema node" });
+    errors.push(
+      createError(path, "Invalid or empty schema node", {
+        code: "INVALID_SCHEMA",
+        schemaPath,
+        category: "SCHEMA_ERROR",
+      })
+    );
     return;
   }
 
@@ -38,22 +44,29 @@ function validateSchema(schema, data, path, rootSchema, errors) {
   if (schema.$ref) {
     const resolved = resolveRef(schema.$ref, rootSchema);
     if (!resolved) {
-      errors.push({ path, message: `Unable to resolve $ref ${schema.$ref}` });
+      errors.push(
+        createError(path, `Unable to resolve $ref ${schema.$ref}`, {
+          code: "UNRESOLVED_REF",
+          schemaPath,
+          category: "SCHEMA_ERROR",
+          expectedValue: schema.$ref,
+        })
+      );
       return;
     }
-    validateSchema(resolved, data, path, rootSchema, errors);
+    validateSchema(resolved, data, path, rootSchema, errors, schemaPath);
     return;
   }
 
   // Handle meta-keywords first (allOf/anyOf/oneOf)
   if (schema.allOf) {
-    validateAllOf(schema.allOf, data, path, rootSchema, errors);
+    validateAllOf(schema.allOf, data, path, rootSchema, errors, schemaPath);
   }
   if (schema.anyOf) {
-    validateAnyOf(schema.anyOf, data, path, rootSchema, errors);
+    validateAnyOf(schema.anyOf, data, path, rootSchema, errors, schemaPath);
   }
   if (schema.oneOf) {
-    validateOneOf(schema.oneOf, data, path, rootSchema, errors);
+    validateOneOf(schema.oneOf, data, path, rootSchema, errors, schemaPath);
   }
 
   // Type-based validation – infer if missing
@@ -67,25 +80,25 @@ function validateSchema(schema, data, path, rootSchema, errors) {
 
   switch (expectedType) {
     case "object":
-      validateObject(schema, data, path, rootSchema, errors);
+      validateObject(schema, data, path, rootSchema, errors, schemaPath);
       break;
     case "array":
-      validateArray(schema, data, path, rootSchema, errors);
+      validateArray(schema, data, path, rootSchema, errors, schemaPath);
       break;
     case "string":
     case "number":
     case "integer":
     case "boolean":
     case "null":
-      validatePrimitive(schema, data, path, errors);
+      validatePrimitive(schema, data, path, errors, schemaPath);
       break;
     default:
       // If no explicit type, still allow recursion for nested keywords.
       if (schema.properties || schema.items) {
-        validateObject(schema, data, path, rootSchema, errors);
+        validateObject(schema, data, path, rootSchema, errors, schemaPath);
       } else if (schema.enum || schema.pattern || schema.const !== undefined) {
         // Primitive constraints without explicit type
-        validatePrimitive({ ...schema, type: getJsonType(data) }, data, path, errors);
+        validatePrimitive({ ...schema, type: getJsonType(data) }, data, path, errors, schemaPath);
       }
   }
 
@@ -118,11 +131,20 @@ function resolveRef(ref, rootSchema) {
 // Object validation
 // -------------------------------------------------------------------------
 
-function validateObject(schema, data, path, rootSchema, errors) {
+function validateObject(schema, data, path, rootSchema, errors, schemaPath) {
   const actualType = getJsonType(data);
   if (schema.type === "object") {
     if (actualType !== "object") {
-      errors.push({ path, message: `Expected object but got ${actualType}` });
+      errors.push(
+        createError(path, `Expected object but got ${actualType}`, {
+          code: "TYPE_MISMATCH",
+          category: "TYPE_ERROR",
+          schemaPath,
+          title: schema.title,
+          expectedValue: "object",
+          actualValue: actualType,
+        })
+      );
       return;
     }
   } else {
@@ -138,11 +160,31 @@ function validateObject(schema, data, path, rootSchema, errors) {
       if (req.includes(".")) {
         const segments = req.split(".");
         if (!existsByPath(data, segments)) {
-          errors.push({ path: `${path}.${req}`, message: "Required property missing" });
+          errors.push(
+            createError(`${path}.${req}`, "Required property missing", {
+              code: "90220",
+              category: "MISSING_ATTRIBUTE",
+              schemaPath: `${schemaPath}/required`,
+              attributeNames: [req],
+              title: schema.title || `Missing ${req}`,
+            })
+          );
         }
       } else {
         if (!(req in data)) {
-          errors.push({ path: `${path}.${req}`, message: "Required property missing" });
+          // Try to get title from property schema
+          const propSchema = schema.properties?.[req];
+          const propTitle = propSchema?.title || req;
+
+          errors.push(
+            createError(`${path}.${req}`, `'${propTitle}' is required but not supplied.`, {
+              code: "90220",
+              category: "MISSING_ATTRIBUTE",
+              schemaPath: `${schemaPath}/required`,
+              attributeNames: [req],
+              title: propTitle,
+            })
+          );
         }
       }
     }
@@ -151,7 +193,7 @@ function validateObject(schema, data, path, rootSchema, errors) {
   const props = schema.properties || {};
   for (const [key, propSchema] of Object.entries(props)) {
     if (key in data) {
-      validateSchema(propSchema, data[key], `${path}.${key}`, rootSchema, errors);
+      validateSchema(propSchema, data[key], `${path}.${key}`, rootSchema, errors, `${schemaPath}/properties/${key}`);
     }
   }
 }
@@ -183,36 +225,81 @@ function existsByPath(obj, segs) {
 // Array validation
 // -------------------------------------------------------------------------
 
-function validateArray(schema, data, path, rootSchema, errors) {
+function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
   if (!Array.isArray(data)) {
-    errors.push({ path, message: `Expected array but got ${getJsonType(data)}` });
+    errors.push(
+      createError(path, `Expected array but got ${getJsonType(data)}`, {
+        code: "TYPE_MISMATCH",
+        category: "TYPE_ERROR",
+        schemaPath,
+        title: schema.title,
+        expectedValue: "array",
+        actualValue: getJsonType(data),
+      })
+    );
     return;
   }
 
   const { minItems, maxItems, minUniqueItems, maxUniqueItems } = schema;
 
   if (typeof minItems === "number" && data.length < minItems) {
-    errors.push({ path, message: `Array has fewer items (${data.length}) than minimum ${minItems}` });
+    errors.push(
+      createError(path, `Array has fewer items (${data.length}) than minimum ${minItems}`, {
+        code: "ARRAY_TOO_SHORT",
+        category: "CONSTRAINT_VIOLATION",
+        schemaPath: `${schemaPath}/minItems`,
+        title: schema.title,
+        expectedValue: `>= ${minItems}`,
+        actualValue: data.length,
+      })
+    );
   }
   if (typeof maxItems === "number" && data.length > maxItems) {
-    errors.push({ path, message: `Array has more items (${data.length}) than maximum ${maxItems}` });
+    errors.push(
+      createError(path, `Array has more items (${data.length}) than maximum ${maxItems}`, {
+        code: "ARRAY_TOO_LONG",
+        category: "CONSTRAINT_VIOLATION",
+        schemaPath: `${schemaPath}/maxItems`,
+        title: schema.title,
+        expectedValue: `<= ${maxItems}`,
+        actualValue: data.length,
+      })
+    );
   }
 
   // Uniqueness – simple JSON.stringify comparison
   if (typeof minUniqueItems === "number" || typeof maxUniqueItems === "number") {
     const unique = new Set(data.map((v) => JSON.stringify(v)));
     if (typeof minUniqueItems === "number" && unique.size < minUniqueItems) {
-      errors.push({ path, message: `Array unique items (${unique.size}) less than minimum ${minUniqueItems}` });
+      errors.push(
+        createError(path, `Array unique items (${unique.size}) less than minimum ${minUniqueItems}`, {
+          code: "INSUFFICIENT_UNIQUE_ITEMS",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/minUniqueItems`,
+          title: schema.title,
+          expectedValue: `>= ${minUniqueItems}`,
+          actualValue: unique.size,
+        })
+      );
     }
     if (typeof maxUniqueItems === "number" && unique.size > maxUniqueItems) {
-      errors.push({ path, message: `Array unique items (${unique.size}) greater than maximum ${maxUniqueItems}` });
+      errors.push(
+        createError(path, `Array unique items (${unique.size}) greater than maximum ${maxUniqueItems}`, {
+          code: "TOO_MANY_UNIQUE_ITEMS",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/maxUniqueItems`,
+          title: schema.title,
+          expectedValue: `<= ${maxUniqueItems}`,
+          actualValue: unique.size,
+        })
+      );
     }
   }
 
   // Item validation
   if (schema.items) {
     data.forEach((item, idx) => {
-      validateSchema(schema.items, item, `${path}[${idx}]`, rootSchema, errors);
+      validateSchema(schema.items, item, `${path}[${idx}]`, rootSchema, errors, `${schemaPath}/items`);
     });
   }
 
@@ -221,7 +308,7 @@ function validateArray(schema, data, path, rootSchema, errors) {
     let matchCount = 0;
     data.forEach((item) => {
       const temp = [];
-      validateSchema(schema.contains, item, path, rootSchema, temp);
+      validateSchema(schema.contains, item, path, rootSchema, temp, `${schemaPath}/contains`);
       if (temp.length === 0) matchCount += 1;
     });
 
@@ -229,9 +316,27 @@ function validateArray(schema, data, path, rootSchema, errors) {
     const maxContains = typeof schema.maxContains === "number" ? schema.maxContains : undefined;
 
     if (matchCount < minContains) {
-      errors.push({ path, message: `Array must contain at least ${minContains} item(s) matching contains schema` });
+      errors.push(
+        createError(path, `Array must contain at least ${minContains} item(s) matching contains schema`, {
+          code: "CONTAINS_VIOLATION",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/contains`,
+          title: schema.title,
+          expectedValue: `>= ${minContains} matching items`,
+          actualValue: `${matchCount} matching items`,
+        })
+      );
     } else if (maxContains !== undefined && matchCount > maxContains) {
-      errors.push({ path, message: `Array must contain no more than ${maxContains} items matching contains schema` });
+      errors.push(
+        createError(path, `Array must contain no more than ${maxContains} items matching contains schema`, {
+          code: "CONTAINS_VIOLATION",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/contains`,
+          title: schema.title,
+          expectedValue: `<= ${maxContains} matching items`,
+          actualValue: `${matchCount} matching items`,
+        })
+      );
     }
   }
 }
@@ -240,21 +345,48 @@ function validateArray(schema, data, path, rootSchema, errors) {
 // Primitive validation (string, number, boolean, etc.)
 // -------------------------------------------------------------------------
 
-function validatePrimitive(schema, data, path, errors) {
+function validatePrimitive(schema, data, path, errors, schemaPath) {
   const actualType = getJsonType(data);
   if (!typeMatches(schema.type, data)) {
-    errors.push({ path, message: `Expected ${schema.type} but got ${actualType}` });
+    errors.push(
+      createError(path, `Expected ${schema.type} but got ${actualType}`, {
+        code: "TYPE_MISMATCH",
+        category: "TYPE_ERROR",
+        schemaPath: `${schemaPath}/type`,
+        title: schema.title,
+        expectedValue: schema.type,
+        actualValue: actualType,
+      })
+    );
     return;
   }
 
   if (schema.enum && !schema.enum.includes(data)) {
-    errors.push({ path, message: `Value ${data} not in enum` });
+    errors.push(
+      createError(path, `Value ${JSON.stringify(data)} not in enum`, {
+        code: "ENUM_VIOLATION",
+        category: "CONSTRAINT_VIOLATION",
+        schemaPath: `${schemaPath}/enum`,
+        title: schema.title,
+        expectedValue: schema.enum,
+        actualValue: data,
+      })
+    );
   }
 
   if (schema.pattern && typeof data === "string") {
     const re = new RegExp(schema.pattern);
     if (!re.test(data)) {
-      errors.push({ path, message: `String does not match pattern ${schema.pattern}` });
+      errors.push(
+        createError(path, `String does not match pattern ${schema.pattern}`, {
+          code: "PATTERN_VIOLATION",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/pattern`,
+          title: schema.title,
+          expectedValue: schema.pattern,
+          actualValue: data,
+        })
+      );
     }
   }
 }
@@ -276,30 +408,30 @@ function typeMatches(expected, value) {
 // allOf / anyOf / oneOf handling
 // -------------------------------------------------------------------------
 
-function validateAllOf(list, data, path, rootSchema, errors) {
+function validateAllOf(list, data, path, rootSchema, errors, schemaPath) {
   for (const sub of list) {
     // Conditional support: if/then/else inside allOf element
     if (sub.if) {
       const conditionErrors = [];
-      validateSchema(sub.if, data, path, rootSchema, conditionErrors);
+      validateSchema(sub.if, data, path, rootSchema, conditionErrors, schemaPath);
       const conditionMet = conditionErrors.length === 0;
       if (conditionMet && sub.then) {
-        validateSchema(sub.then, data, path, rootSchema, errors);
+        validateSchema(sub.then, data, path, rootSchema, errors, schemaPath);
       } else if (!conditionMet && sub.else) {
-        validateSchema(sub.else, data, path, rootSchema, errors);
+        validateSchema(sub.else, data, path, rootSchema, errors, schemaPath);
       }
     } else {
-      validateSchema(sub, data, path, rootSchema, errors);
+      validateSchema(sub, data, path, rootSchema, errors, schemaPath);
     }
   }
 }
 
-function validateAnyOf(list, data, path, rootSchema, errors) {
+function validateAnyOf(list, data, path, rootSchema, errors, schemaPath) {
   let anyValid = false;
   const collectedErrors = [];
   for (const sub of list) {
     const tempErrors = [];
-    validateSchema(sub, data, path, rootSchema, tempErrors);
+    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath);
     if (tempErrors.length === 0) {
       anyValid = true;
       break;
@@ -307,21 +439,38 @@ function validateAnyOf(list, data, path, rootSchema, errors) {
     collectedErrors.push(...tempErrors);
   }
   if (!anyValid) {
-    errors.push({ path, message: "Failed to match anyOf schemas", details: collectedErrors });
+    errors.push(
+      createError(path, "Failed to match anyOf schemas", {
+        code: "ANYOF_VIOLATION",
+        category: "SCHEMA_VIOLATION",
+        schemaPath: `${schemaPath}/anyOf`,
+        title: "Value must match at least one schema",
+        details: collectedErrors,
+      })
+    );
   }
 }
 
-function validateOneOf(list, data, path, rootSchema, errors) {
+function validateOneOf(list, data, path, rootSchema, errors, schemaPath) {
   let matchCount = 0;
   for (const sub of list) {
     const tempErrors = [];
-    validateSchema(sub, data, path, rootSchema, tempErrors);
+    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath);
     if (tempErrors.length === 0) {
       matchCount += 1;
     }
   }
   if (matchCount !== 1) {
-    errors.push({ path, message: `Failed oneOf – matched ${matchCount} schemas` });
+    errors.push(
+      createError(path, `Failed oneOf – matched ${matchCount} schemas`, {
+        code: "ONEOF_VIOLATION",
+        category: "SCHEMA_VIOLATION",
+        schemaPath: `${schemaPath}/oneOf`,
+        title: "Value must match exactly one schema",
+        expectedValue: "exactly 1 match",
+        actualValue: `${matchCount} matches`,
+      })
+    );
   }
 }
 
@@ -389,6 +538,42 @@ function getJsonType(value) {
     return Number.isInteger(value) ? "integer" : "number";
   }
   return typeof value; // string, boolean, object, undefined, function
+}
+
+// -------------------------------------------------------------------------
+// Error creation helper
+// -------------------------------------------------------------------------
+
+/**
+ * Create a standardized error object with enhanced metadata.
+ * @param {string} path - The data path where error occurred
+ * @param {string} message - Primary error message
+ * @param {Object} options - Additional error details
+ * @param {string} [options.title] - Human-readable title from schema
+ * @param {string} [options.severity] - ERROR, WARNING, INFO
+ * @param {string} [options.code] - Error code (e.g., "90220", "MISSING_ATTRIBUTE")
+ * @param {string} [options.category] - Error category
+ * @param {string} [options.schemaPath] - Path in schema where rule is defined
+ * @param {*} [options.actualValue] - The actual value that failed
+ * @param {*} [options.expectedValue] - What was expected
+ * @returns {Object} Enhanced error object
+ */
+function createError(path, message, options = {}) {
+  const error = {
+    path,
+    message,
+    severity: options.severity || "ERROR",
+    code: options.code || "VALIDATION_ERROR",
+    category: options.category || "SCHEMA_VIOLATION",
+  };
+
+  if (options.title) error.title = options.title;
+  if (options.schemaPath) error.schemaPath = options.schemaPath;
+  if (options.actualValue !== undefined) error.actualValue = options.actualValue;
+  if (options.expectedValue !== undefined) error.expectedValue = options.expectedValue;
+  if (options.attributeNames) error.attributeNames = options.attributeNames;
+
+  return error;
 }
 
 if (typeof module !== "undefined" && typeof module.exports !== "undefined") {
