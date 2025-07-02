@@ -57,7 +57,8 @@ function validateSchema(schema, data, path, rootSchema, errors) {
   }
 
   // Type-based validation – infer if missing
-  const expectedType = schema.type || (schema.properties ? "object" : schema.items ? "array" : undefined);
+  const expectedType =
+    schema.type || (schema.properties ? "object" : schema.items ? "array" : schema.required ? "object" : undefined);
 
   switch (expectedType) {
     case "object":
