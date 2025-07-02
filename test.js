@@ -929,7 +929,7 @@ let validateResult;
 
 validateResult = validateFromFile("./amazon_schema_LAPTOP.json", payload);
 console.log("----------------------- VALIDATE RESULT FOR LAPTOP -----------------------");
-console.log(validateResult);
+console.log(JSON.stringify(validateResult, null, 2));
 console.log("----------------------- END VALIDATE RESULT FOR LAPTOP -----------------------");
 
 // validateResult = validateFromFile("./amazon_schema_GAMING_PC.json", payload);
