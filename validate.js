@@ -240,7 +240,7 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
     return;
   }
 
-  const { minItems, maxItems, minUniqueItems, maxUniqueItems } = schema;
+  const { minItems, maxItems, minUniqueItems, maxUniqueItems, variations } = schema;
 
   if (typeof minItems === "number" && data.length < minItems) {
     errors.push(
@@ -254,7 +254,7 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
       })
     );
   }
-  if (typeof maxItems === "number" && data.length > maxItems) {
+  if (typeof maxItems === "number" && data.length > maxItems && !variations) {
     errors.push(
       createError(path, `Array has more items (${data.length}) than maximum ${maxItems}`, {
         code: "ARRAY_TOO_LONG",
@@ -268,7 +268,7 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
   }
 
   // Uniqueness – simple JSON.stringify comparison
-  if (typeof minUniqueItems === "number" || typeof maxUniqueItems === "number") {
+  if ((typeof minUniqueItems === "number" || typeof maxUniqueItems === "number") && !variations) {
     const unique = new Set(data.map((v) => JSON.stringify(v)));
     if (typeof minUniqueItems === "number" && unique.size < minUniqueItems) {
       errors.push(

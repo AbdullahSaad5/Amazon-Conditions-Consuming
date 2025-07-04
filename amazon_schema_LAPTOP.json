@@ -19084,6 +19084,7 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 1,
+            "variations": true,
             "items": {
               "type": "object",
               "required": ["value"],

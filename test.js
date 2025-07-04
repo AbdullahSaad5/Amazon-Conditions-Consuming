@@ -798,27 +798,18 @@ const payload = {
   ],
   hard_disk: [
     {
-      description: [
-        {
-          value: "descriptionn",
-          language_tag: "en_GB",
-        },
-      ],
-      interface: [
-        {
-          value: "ata_4",
-        },
-      ],
       marketplace_id: "A1F83G8C2ARO7P",
-      rotational_speed: [
-        {
-          value: 1233,
-          unit: "rpm",
-        },
-      ],
       size: [
         {
           value: 234,
+          unit: "GB",
+        },
+        {
+          value: 500,
+          unit: "GB",
+        },
+        {
+          value: 150,
           unit: "GB",
         },
       ],

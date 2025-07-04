@@ -515,18 +515,18 @@
                                     "880X",
                                     "A1",
                                     "A40"
-                                    
+
 
                                 ],
                                 "enumNames": [
                                     "120L5 Ultra",
                                     "12HSC136",
-                                   
+
                                     "ZH406ST",
                                     "ZH507",
                                     "ZK507",
                                     "ZU1100",
-                                    
+
                                     "ZW403",
                                     "ZX350e"
                                 ]
@@ -15230,7 +15230,7 @@
                             "properties": {
                                 "value": {
                                     "title": "Lithium Battery Packaging",
-                                    "description": "Select “in equipment” if the battery is contained in the item . Select “with equipment” if the battery is packed separately with the device it is meant to power. Select “only” if the product is a battery sold alone or with items it is not meant to power.",
+                                    "description": "Select “in equipment” if the battery is contained in the item. Select “with equipment” if the battery is packed separately with the device it is meant to power. Select “only” if the product is a battery sold alone or with items it is not meant to power.",
                                     "editable": true,
                                     "hidden": false,
                                     "examples": [
