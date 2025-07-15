@@ -914,6 +914,12 @@ const payload = {
       marketplace_id: "A1F83G8C2ARO7P",
     },
   ],
+  fulfillment_availability: [
+    {
+      fulfillment_channel_code: "AMAZON_EU",
+      restock_date: "2020-05-05",
+    },
+  ],
 };
 
 let validateResult;
@@ -932,3 +938,5 @@ console.log("----------------------- END VALIDATE RESULT FOR LAPTOP ------------
 // console.log("----------------------- VALIDATE RESULT FOR VIDEO PROJECTOR -----------------------");
 // console.log(validateResult);
 // console.log("----------------------- END VALIDATE RESULT FOR VIDEO PROJECTOR -----------------------");
+
+console.log("----------------------- END TESTING VARIATIONS -----------------------");

@@ -71,14 +71,17 @@ function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "",
     validateOneOf(schema.oneOf, data, path, rootSchema, errors, schemaPath, variationAspects);
   }
 
-  // Type-based validation – infer if missing
-  const expectedType = schema.properties
+  // Type-based validation – use explicit type first, then infer if missing
+  const explicitType = schema.type;
+  const inferredType = schema.properties
     ? "object"
     : schema.items || schema.contains
     ? "array"
     : schema.required
     ? "object"
     : undefined;
+
+  const expectedType = explicitType || inferredType;
 
   switch (expectedType) {
     case "object":
@@ -98,7 +101,7 @@ function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "",
       // If no explicit type, still allow recursion for nested keywords.
       if (schema.properties || schema.items) {
         validateObject(schema, data, path, rootSchema, errors, schemaPath, variationAspects);
-      } else if (schema.enum || schema.pattern || schema.const !== undefined) {
+      } else if (schema.enum || schema.pattern || schema.const !== undefined || schema.format) {
         // Primitive constraints without explicit type
         validatePrimitive({ ...schema, type: getJsonType(data) }, data, path, errors, schemaPath);
       }
@@ -431,6 +434,64 @@ function validatePrimitive(schema, data, path, errors, schemaPath) {
       );
     }
   }
+
+  // Format validation for strings
+  if (schema.format && typeof data === "string") {
+    let isValid = true;
+    let formatError = "";
+
+    switch (schema.format) {
+      case "date":
+        // Validate YYYY-MM-DD format
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(data)) {
+          isValid = false;
+          formatError = "Expected date format YYYY-MM-DD";
+        } else {
+          // Check if it's a valid date
+          const date = new Date(data + "T00:00:00.000Z");
+          if (isNaN(date.getTime()) || date.toISOString().substr(0, 10) !== data) {
+            isValid = false;
+            formatError = "Invalid date value";
+          }
+        }
+        break;
+
+      case "date-time":
+        // Validate ISO 8601 date-time format - must include time component
+        const dateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/;
+        if (!dateTimeRegex.test(data)) {
+          isValid = false;
+          formatError = "Expected date-time format YYYY-MM-DDTHH:mm:ss[.sss][Z]";
+        } else {
+          // Check if it's a valid date-time
+          const date = new Date(data);
+          if (isNaN(date.getTime())) {
+            isValid = false;
+            formatError = "Invalid date-time value";
+          }
+        }
+        break;
+
+      // Add more format validations as needed
+      default:
+        // Unknown format - just skip validation for now
+        break;
+    }
+
+    if (!isValid) {
+      errors.push(
+        createError(path, `String does not match format ${schema.format}: ${formatError}`, {
+          code: "FORMAT_VIOLATION",
+          category: "CONSTRAINT_VIOLATION",
+          schemaPath: `${schemaPath}/format`,
+          title: schema.title,
+          expectedValue: schema.format,
+          actualValue: data,
+        })
+      );
+    }
+  }
 }
 
 function typeMatches(expected, value) {
@@ -495,13 +556,17 @@ function validateAnyOf(list, data, path, rootSchema, errors, schemaPath, variati
 
 function validateOneOf(list, data, path, rootSchema, errors, schemaPath, variationAspects) {
   let matchCount = 0;
+
   for (const sub of list) {
     const tempErrors = [];
     validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath, variationAspects);
-    if (tempErrors.length === 0) {
+    const isMatch = tempErrors.length === 0;
+
+    if (isMatch) {
       matchCount += 1;
     }
   }
+
   if (matchCount !== 1) {
     errors.push(
       createError(path, `Failed oneOf – matched ${matchCount} schemas`, {
