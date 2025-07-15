@@ -924,6 +924,9 @@ const payload = {
 
 let validateResult;
 
+// First Argument is the schema file path
+// Second Argument is the payload
+// Third Argument is the variations to test. Nested paths are supported with dot notation.
 validateResult = validateFromFile("./amazon_schema_LAPTOP.json", payload, ["color", "hard_disk.size"]);
 console.log("----------------------- VALIDATE RESULT FOR LAPTOP -----------------------");
 console.log(JSON.stringify(validateResult, null, 2));
