@@ -12,11 +12,13 @@
  * Validate `data` against `schema`.
  * @param {Object} schema – JSON schema to validate against.
  * @param {*}      data   – Arbitrary user payload.
+ * @param {Array<string>} variationAspects – Optional array of aspect names or paths that should be treated as having variations:true.
+ *                                           Supports simple names like 'hard_disk' or nested paths like 'hard_disk.size' or 'hard_disk[*].size'
  * @returns {{valid:boolean,errors:Array<{path:string,message:string,title?:string,severity?:string,code?:string,category?:string,schemaPath?:string}>}}
  */
-function validate(schema, data) {
+function validate(schema, data, variationAspects = []) {
   const errors = [];
-  validateSchema(schema, data, "root", schema, errors);
+  validateSchema(schema, data, "root", schema, errors, "", variationAspects);
   return { valid: errors.length === 0, errors };
 }
 
@@ -28,7 +30,7 @@ function validate(schema, data) {
  * Generic validator that dispatches to specialised routines based on schema
  * contents (type, allOf/oneOf/anyOf, $ref, etc.).
  */
-function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "") {
+function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "", variationAspects = []) {
   if (!schema || typeof schema !== "object") {
     errors.push(
       createError(path, "Invalid or empty schema node", {
@@ -54,19 +56,19 @@ function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "")
       );
       return;
     }
-    validateSchema(resolved, data, path, rootSchema, errors, schemaPath);
+    validateSchema(resolved, data, path, rootSchema, errors, schemaPath, variationAspects);
     return;
   }
 
   // Handle meta-keywords first (allOf/anyOf/oneOf)
   if (schema.allOf) {
-    validateAllOf(schema.allOf, data, path, rootSchema, errors, schemaPath);
+    validateAllOf(schema.allOf, data, path, rootSchema, errors, schemaPath, variationAspects);
   }
   if (schema.anyOf) {
-    validateAnyOf(schema.anyOf, data, path, rootSchema, errors, schemaPath);
+    validateAnyOf(schema.anyOf, data, path, rootSchema, errors, schemaPath, variationAspects);
   }
   if (schema.oneOf) {
-    validateOneOf(schema.oneOf, data, path, rootSchema, errors, schemaPath);
+    validateOneOf(schema.oneOf, data, path, rootSchema, errors, schemaPath, variationAspects);
   }
 
   // Type-based validation – infer if missing
@@ -80,10 +82,10 @@ function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "")
 
   switch (expectedType) {
     case "object":
-      validateObject(schema, data, path, rootSchema, errors, schemaPath);
+      validateObject(schema, data, path, rootSchema, errors, schemaPath, variationAspects);
       break;
     case "array":
-      validateArray(schema, data, path, rootSchema, errors, schemaPath);
+      validateArray(schema, data, path, rootSchema, errors, schemaPath, variationAspects);
       break;
     case "string":
     case "number":
@@ -95,7 +97,7 @@ function validateSchema(schema, data, path, rootSchema, errors, schemaPath = "")
     default:
       // If no explicit type, still allow recursion for nested keywords.
       if (schema.properties || schema.items) {
-        validateObject(schema, data, path, rootSchema, errors, schemaPath);
+        validateObject(schema, data, path, rootSchema, errors, schemaPath, variationAspects);
       } else if (schema.enum || schema.pattern || schema.const !== undefined) {
         // Primitive constraints without explicit type
         validatePrimitive({ ...schema, type: getJsonType(data) }, data, path, errors, schemaPath);
@@ -131,7 +133,7 @@ function resolveRef(ref, rootSchema) {
 // Object validation
 // -------------------------------------------------------------------------
 
-function validateObject(schema, data, path, rootSchema, errors, schemaPath) {
+function validateObject(schema, data, path, rootSchema, errors, schemaPath, variationAspects) {
   const actualType = getJsonType(data);
   if (schema.type === "object") {
     if (actualType !== "object") {
@@ -193,7 +195,15 @@ function validateObject(schema, data, path, rootSchema, errors, schemaPath) {
   const props = schema.properties || {};
   for (const [key, propSchema] of Object.entries(props)) {
     if (key in data) {
-      validateSchema(propSchema, data[key], `${path}.${key}`, rootSchema, errors, `${schemaPath}/properties/${key}`);
+      validateSchema(
+        propSchema,
+        data[key],
+        `${path}.${key}`,
+        rootSchema,
+        errors,
+        `${schemaPath}/properties/${key}`,
+        variationAspects
+      );
     }
   }
 }
@@ -225,7 +235,7 @@ function existsByPath(obj, segs) {
 // Array validation
 // -------------------------------------------------------------------------
 
-function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
+function validateArray(schema, data, path, rootSchema, errors, schemaPath, variationAspects) {
   if (!Array.isArray(data)) {
     errors.push(
       createError(path, `Expected array but got ${getJsonType(data)}`, {
@@ -240,7 +250,29 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
     return;
   }
 
-  const { minItems, maxItems, minUniqueItems, maxUniqueItems, variations } = schema;
+  const { minItems, maxItems, minUniqueItems, maxUniqueItems } = schema;
+
+  // Check if this path matches any of the variation aspects
+  // Support various path patterns:
+  // - Simple aspect name: 'hard_disk' matches 'root.hard_disk' or '*.hard_disk'
+  // - Nested path: 'hard_disk.size' matches 'root.hard_disk[*].size'
+  // - Array notation: 'hard_disk[*].size' explicitly matches array elements
+  const hasVariations = variationAspects.some((aspect) => {
+    // Remove 'root.' prefix from path for easier matching
+    const cleanPath = path.startsWith("root.") ? path.substring(5) : path;
+
+    if (aspect.includes(".")) {
+      // Handle nested paths like 'hard_disk.size'
+      // Convert the clean path to remove array indices for pattern matching
+      const pathWithoutIndices = cleanPath.replace(/\[\d+\]/g, "");
+
+      // Check if the aspect matches the path structure
+      return pathWithoutIndices === aspect;
+    } else {
+      // Simple aspect name matching (backward compatibility)
+      return path.endsWith(`.${aspect}`) || path === `root.${aspect}` || cleanPath === aspect;
+    }
+  });
 
   if (typeof minItems === "number" && data.length < minItems) {
     errors.push(
@@ -254,7 +286,8 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
       })
     );
   }
-  if (typeof maxItems === "number" && data.length > maxItems && !variations) {
+  // Only enforce maxItems if this aspect is not in the variations list
+  if (typeof maxItems === "number" && data.length > maxItems && !hasVariations) {
     errors.push(
       createError(path, `Array has more items (${data.length}) than maximum ${maxItems}`, {
         code: "ARRAY_TOO_LONG",
@@ -268,7 +301,8 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
   }
 
   // Uniqueness – simple JSON.stringify comparison
-  if ((typeof minUniqueItems === "number" || typeof maxUniqueItems === "number") && !variations) {
+  // Only enforce minUniqueItems/maxUniqueItems if this aspect is not in the variations list
+  if ((typeof minUniqueItems === "number" || typeof maxUniqueItems === "number") && !hasVariations) {
     const unique = new Set(data.map((v) => JSON.stringify(v)));
     if (typeof minUniqueItems === "number" && unique.size < minUniqueItems) {
       errors.push(
@@ -299,7 +333,15 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
   // Item validation
   if (schema.items) {
     data.forEach((item, idx) => {
-      validateSchema(schema.items, item, `${path}[${idx}]`, rootSchema, errors, `${schemaPath}/items`);
+      validateSchema(
+        schema.items,
+        item,
+        `${path}[${idx}]`,
+        rootSchema,
+        errors,
+        `${schemaPath}/items`,
+        variationAspects
+      );
     });
   }
 
@@ -308,7 +350,7 @@ function validateArray(schema, data, path, rootSchema, errors, schemaPath) {
     let matchCount = 0;
     data.forEach((item) => {
       const temp = [];
-      validateSchema(schema.contains, item, path, rootSchema, temp, `${schemaPath}/contains`);
+      validateSchema(schema.contains, item, path, rootSchema, temp, `${schemaPath}/contains`, variationAspects);
       if (temp.length === 0) matchCount += 1;
     });
 
@@ -408,30 +450,30 @@ function typeMatches(expected, value) {
 // allOf / anyOf / oneOf handling
 // -------------------------------------------------------------------------
 
-function validateAllOf(list, data, path, rootSchema, errors, schemaPath) {
+function validateAllOf(list, data, path, rootSchema, errors, schemaPath, variationAspects) {
   for (const sub of list) {
     // Conditional support: if/then/else inside allOf element
     if (sub.if) {
       const conditionErrors = [];
-      validateSchema(sub.if, data, path, rootSchema, conditionErrors, schemaPath);
+      validateSchema(sub.if, data, path, rootSchema, conditionErrors, schemaPath, variationAspects);
       const conditionMet = conditionErrors.length === 0;
       if (conditionMet && sub.then) {
-        validateSchema(sub.then, data, path, rootSchema, errors, schemaPath);
+        validateSchema(sub.then, data, path, rootSchema, errors, schemaPath, variationAspects);
       } else if (!conditionMet && sub.else) {
-        validateSchema(sub.else, data, path, rootSchema, errors, schemaPath);
+        validateSchema(sub.else, data, path, rootSchema, errors, schemaPath, variationAspects);
       }
     } else {
-      validateSchema(sub, data, path, rootSchema, errors, schemaPath);
+      validateSchema(sub, data, path, rootSchema, errors, schemaPath, variationAspects);
     }
   }
 }
 
-function validateAnyOf(list, data, path, rootSchema, errors, schemaPath) {
+function validateAnyOf(list, data, path, rootSchema, errors, schemaPath, variationAspects) {
   let anyValid = false;
   const collectedErrors = [];
   for (const sub of list) {
     const tempErrors = [];
-    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath);
+    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath, variationAspects);
     if (tempErrors.length === 0) {
       anyValid = true;
       break;
@@ -451,11 +493,11 @@ function validateAnyOf(list, data, path, rootSchema, errors, schemaPath) {
   }
 }
 
-function validateOneOf(list, data, path, rootSchema, errors, schemaPath) {
+function validateOneOf(list, data, path, rootSchema, errors, schemaPath, variationAspects) {
   let matchCount = 0;
   for (const sub of list) {
     const tempErrors = [];
-    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath);
+    validateSchema(sub, data, path, rootSchema, tempErrors, schemaPath, variationAspects);
     if (tempErrors.length === 0) {
       matchCount += 1;
     }
@@ -523,11 +565,13 @@ function loadSchemaSync(filePath) {
  * Convenience helper that reads the schema file from disk then validates data.
  * @param {string} filePath – Path to schema JSON file.
  * @param {*}      data     – Data to validate.
+ * @param {Array<string>} variationAspects – Optional array of aspect names or paths that should be treated as having variations:true.
+ *                                           Supports simple names like 'hard_disk' or nested paths like 'hard_disk.size' or 'hard_disk[*].size'
  * @returns {{valid:boolean,errors:Array<{path:string,message:string}>}}
  */
-function validateFromFile(filePath, data) {
+function validateFromFile(filePath, data, variationAspects = []) {
   const schema = loadSchemaSync(filePath);
-  return validate(schema, data);
+  return validate(schema, data, variationAspects);
 }
 
 // Utility to get JSON type label (string,array,object,number,integer,boolean,null)

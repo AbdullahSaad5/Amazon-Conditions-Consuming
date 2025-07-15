@@ -918,7 +918,7 @@ const payload = {
 
 let validateResult;
 
-validateResult = validateFromFile("./amazon_schema_LAPTOP.json", payload);
+validateResult = validateFromFile("./amazon_schema_LAPTOP.json", payload, ["color", "hard_disk.size"]);
 console.log("----------------------- VALIDATE RESULT FOR LAPTOP -----------------------");
 console.log(JSON.stringify(validateResult, null, 2));
 console.log("----------------------- END VALIDATE RESULT FOR LAPTOP -----------------------");
